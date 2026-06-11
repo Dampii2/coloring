@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const path = require('path');
+const fs = require('fs');
 const { analyzeEmotion, generateGuideQuestion, aiEnabled, MODEL } = require('./resonance');
 
 const app = express();
@@ -9,6 +11,13 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+// Serve the built client (production / single-origin demo) when present.
+const CLIENT_DIST = path.join(__dirname, '..', 'client', 'dist');
+const HAS_CLIENT_BUILD = fs.existsSync(path.join(CLIENT_DIST, 'index.html'));
+if (HAS_CLIENT_BUILD) {
+  app.use(express.static(CLIENT_DIST));
+}
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
@@ -289,6 +298,13 @@ app.post('/api/stories', async (req, res) => {
   stories.push(story);
   res.status(201).json(story);
 });
+
+// SPA fallback — any non-API route serves the client so deep links work.
+if (HAS_CLIENT_BUILD) {
+  app.get(/^(?!\/api).*/, (req, res) => {
+    res.sendFile(path.join(CLIENT_DIST, 'index.html'));
+  });
+}
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
