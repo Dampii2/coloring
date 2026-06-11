@@ -1,11 +1,11 @@
 export const MOOD_PALETTES = {
-  grief:          { bg: '#0d0f1a', accent: '#4a5a8a', glow: '#7b8fc4', text: '#c8cfe8' },
-  resilience:     { bg: '#0f1a0d', accent: '#4a7a3a', glow: '#7bc47b', text: '#c8e8c8' },
-  joy:            { bg: '#1a0f08', accent: '#8a5a1a', glow: '#c47b3a', text: '#e8d5b0' },
-  longing:        { bg: '#0d1018', accent: '#3a4a6a', glow: '#6a7ab0', text: '#b8c0d8' },
-  wonder:         { bg: '#0d1518', accent: '#1a5a6a', glow: '#3ab0c4', text: '#b0d8e0' },
-  gratitude:      { bg: '#18150d', accent: '#6a5a1a', glow: '#b0a030', text: '#e0d8b0' },
-  transformation: { bg: '#150d18', accent: '#5a1a6a', glow: '#a030c4', text: '#d8b0e0' },
+  grief:          { bg: '#161b35', accent: '#5b6fd6', glow: '#9db4ff', text: '#dfe6ff' },
+  resilience:     { bg: '#0f2c1c', accent: '#23b87a', glow: '#5fffb0', text: '#d3ffe8' },
+  joy:            { bg: '#2e1605', accent: '#ff9d2e', glow: '#ffd27a', text: '#fff0d4' },
+  longing:        { bg: '#1a1640', accent: '#7a6cff', glow: '#b9aaff', text: '#e3dcff' },
+  wonder:         { bg: '#06283a', accent: '#1fb6d8', glow: '#5ff0ff', text: '#cdf3ff' },
+  gratitude:      { bg: '#2c2406', accent: '#e6b422', glow: '#ffe07a', text: '#fff6d2' },
+  transformation: { bg: '#2a0d38', accent: '#b13ce0', glow: '#e88bff', text: '#f6dcff' },
 };
 
 export function getDominantMood(stories) {
@@ -19,13 +19,13 @@ export function getDominantMood(stories) {
 
 export function getMoodGradient(mood) {
   const palettes = {
-    grief:          'radial-gradient(ellipse at 30% 40%, #1a1f3a 0%, #0d0f1a 60%, #080a12 100%)',
-    resilience:     'radial-gradient(ellipse at 70% 30%, #132a0f 0%, #0f1a0d 60%, #080f07 100%)',
-    joy:            'radial-gradient(ellipse at 50% 60%, #2a1808 0%, #1a0f08 60%, #100805 100%)',
-    longing:        'radial-gradient(ellipse at 20% 70%, #111828 0%, #0d1018 60%, #070a10 100%)',
-    wonder:         'radial-gradient(ellipse at 60% 20%, #0a2028 0%, #0d1518 60%, #070d10 100%)',
-    gratitude:      'radial-gradient(ellipse at 40% 50%, #221d08 0%, #18150d 60%, #100e07 100%)',
-    transformation: 'radial-gradient(ellipse at 50% 30%, #1e0a22 0%, #150d18 60%, #0c080f 100%)',
+    grief:          'radial-gradient(ellipse at 25% 20%, #3a4790 0%, #1d2456 45%, #0a0e26 100%)',
+    resilience:     'radial-gradient(ellipse at 75% 25%, #1d7a4f 0%, #114429 45%, #06150d 100%)',
+    joy:            'radial-gradient(ellipse at 50% 30%, #b3590f 0%, #6e2f08 45%, #200f04 100%)',
+    longing:        'radial-gradient(ellipse at 20% 75%, #4338a3 0%, #241d5e 45%, #0c0a28 100%)',
+    wonder:         'radial-gradient(ellipse at 65% 18%, #0f6a8f 0%, #0a3a54 45%, #03141f 100%)',
+    gratitude:      'radial-gradient(ellipse at 40% 35%, #9c7a12 0%, #5c4a0c 45%, #1a1505 100%)',
+    transformation: 'radial-gradient(ellipse at 55% 25%, #7d1aa3 0%, #45125c 45%, #160820 100%)',
   };
   return palettes[mood] || palettes.wonder;
 }

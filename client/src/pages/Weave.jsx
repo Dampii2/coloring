@@ -196,7 +196,7 @@ export default function Weave() {
       <div style={{
         position: 'fixed',
         inset: 0,
-        background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.5) 100%)',
+        background: 'radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.32) 100%)',
         pointerEvents: 'none',
         zIndex: 0,
       }} />
