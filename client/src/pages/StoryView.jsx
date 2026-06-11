@@ -293,10 +293,22 @@ export default function StoryView() {
             letterSpacing: '0.15em',
             textTransform: 'uppercase',
             color: `${palette.text}55`,
-            marginBottom: '12px',
+            marginBottom: story.frequency ? '8px' : '12px',
           }}>
             Resonance map
           </div>
+          {story.frequency && (
+            <div style={{
+              fontFamily: 'var(--font-serif)',
+              fontStyle: 'italic',
+              fontSize: '14px',
+              color: palette.glow,
+              marginBottom: '14px',
+              lineHeight: '1.5',
+            }}>
+              &ldquo;{story.frequency}&rdquo;
+            </div>
+          )}
           {Object.entries(story.emotionalVector).map(([key, val]) => (
             <div key={key} style={{ marginBottom: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>

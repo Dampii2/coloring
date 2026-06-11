@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MOOD_PALETTES } from '../utils/moodColors.js';
+
+const FALLBACK_MOMENT_Q = 'Think of a moment that changed the direction of your life. Not the big obvious ones — the quiet ones. What happened?';
 
 const STEP_ATMOSPHERES = [
   { bg: 'radial-gradient(ellipse at 40% 60%, #0a1228 0%, #060b18 100%)', accent: '#2a3a6a', glow: '#4a6ab0', text: '#b0bcd8' },
@@ -94,8 +96,30 @@ export default function StoryGuide() {
   });
   const [transitioning, setTransitioning] = useState(false);
 
+  // Live engine: the first question is drawn from the Story Guide; on
+  // completion the moment is analyzed into a real emotional vector + frequency.
+  const [momentQuestion, setMomentQuestion] = useState(FALLBACK_MOMENT_Q);
+  const [createdStory, setCreatedStory] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
   const atm = STEP_ATMOSPHERES[step] || STEP_ATMOSPHERES[0];
   const totalSteps = 5;
+
+  // Ask the Story Guide for the opening question once, on entry.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/guide/next', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers: [] }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (!cancelled && data && data.question) setMomentQuestion(data.question);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   function advance() {
     setTransitioning(true);
@@ -103,6 +127,30 @@ export default function StoryGuide() {
       setStep(s => s + 1);
       setTransitioning(false);
     }, 300);
+  }
+
+  // From the chapter step, weave the fragment: analyze it server-side so the
+  // preview shows the engine's real emotional vector + frequency phrase, and
+  // the story joins the Weave. Falls through to the local preview on error.
+  function weaveAndAdvance() {
+    setSubmitting(true);
+    fetch('/api/stories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: answers.chapter || 'An Untitled Fragment',
+        fullText: answers.moment,
+        author: 'You',
+        chapter: answers.chapter,
+      }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(story => { if (story) setCreatedStory(story); })
+      .catch(() => {})
+      .finally(() => {
+        setSubmitting(false);
+        advance();
+      });
   }
 
   function goBack() {
@@ -239,7 +287,7 @@ export default function StoryGuide() {
               lineHeight: '1.5',
               marginBottom: '32px',
             }}>
-              Think of a moment that changed the direction of your life. Not the big obvious ones — the quiet ones. What happened?
+              {momentQuestion}
             </h2>
 
             <textarea
@@ -487,26 +535,30 @@ export default function StoryGuide() {
                 Back
               </button>
               <button
-                onClick={advance}
-                disabled={!answers.chapter.trim()}
+                onClick={weaveAndAdvance}
+                disabled={!answers.chapter.trim() || submitting}
                 style={{
                   ...btnBase,
-                  opacity: answers.chapter.trim() ? 1 : 0.4,
-                  cursor: answers.chapter.trim() ? 'pointer' : 'default',
+                  opacity: answers.chapter.trim() && !submitting ? 1 : 0.4,
+                  cursor: answers.chapter.trim() && !submitting ? 'pointer' : 'default',
                 }}
-                onMouseEnter={e => answers.chapter.trim() && (e.currentTarget.style.background = `${atm.accent}88`)}
+                onMouseEnter={e => answers.chapter.trim() && !submitting && (e.currentTarget.style.background = `${atm.accent}88`)}
                 onMouseLeave={e => (e.currentTarget.style.background = `${atm.accent}55`)}
               >
-                Continue
+                {submitting ? 'Weaving...' : 'Weave my fragment'}
               </button>
             </div>
           </div>
         );
 
       case 4: {
-        const moodPalette = MOOD_PALETTES[answers.mood] || MOOD_PALETTES.wonder;
-        const moodTile = MOOD_TILES.find(t => t.key === answers.mood);
+        // Prefer the engine's analysis of the fragment; fall back to the
+        // mood the person chose if the story couldn't be woven server-side.
+        const resolvedMood = (createdStory && createdStory.mood) || answers.mood;
+        const moodPalette = MOOD_PALETTES[resolvedMood] || MOOD_PALETTES.wonder;
+        const moodTile = MOOD_TILES.find(t => t.key === resolvedMood);
         const excerpt = answers.moment.trim().slice(0, 180) + (answers.moment.trim().length > 180 ? '...' : '');
+        const frequency = createdStory && createdStory.frequency;
 
         return (
           <div style={contentStyle}>
@@ -593,9 +645,33 @@ export default function StoryGuide() {
                   borderRadius: '2px',
                   border: `1px solid ${moodPalette.accent}44`,
                 }}>
-                  {answers.mood}
+                  {resolvedMood}
                 </span>
               </div>
+
+              {frequency && (
+                <div style={{
+                  fontSize: '9px',
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase',
+                  color: `${moodPalette.text}55`,
+                  marginBottom: '6px',
+                }}>
+                  Shared frequency
+                </div>
+              )}
+              {frequency && (
+                <p style={{
+                  fontFamily: 'var(--font-serif)',
+                  fontStyle: 'italic',
+                  fontSize: '15px',
+                  color: moodPalette.glow,
+                  marginBottom: '16px',
+                  lineHeight: '1.5',
+                }}>
+                  &ldquo;{frequency}&rdquo;
+                </p>
+              )}
 
               <p style={{
                 fontFamily: 'var(--font-serif)',
@@ -636,7 +712,7 @@ export default function StoryGuide() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
               <button
-                onClick={() => navigate('/')}
+                onClick={() => navigate(createdStory ? `/story/${createdStory.id}` : '/')}
                 style={{
                   ...btnBase,
                   padding: '13px 32px',
