@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
+const { analyzeEmotion, generateGuideQuestion, aiEnabled, MODEL } = require('./resonance');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -236,8 +237,62 @@ app.get('/api/resonance/:storyId', (req, res) => {
   res.json(matches);
 });
 
+// ─── AI: Emotional Resonance Engine ─────────────────────────────────────────
+
+// Whether the live AI engine is wired up (key present) — lets the client adapt.
+app.get('/api/engine', (req, res) => {
+  res.json({ aiEnabled: aiEnabled(), model: aiEnabled() ? MODEL : null });
+});
+
+// Analyze arbitrary story text into an emotional vector + frequency phrase.
+app.post('/api/analyze', async (req, res) => {
+  const { text } = req.body;
+  if (!text || !text.trim()) {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  const result = await analyzeEmotion(text);
+  res.json(result);
+});
+
+// The Story Guide's adaptive next question. Body: { answers: [string, ...] }.
+app.post('/api/guide/next', async (req, res) => {
+  const { answers } = req.body;
+  const result = await generateGuideQuestion(Array.isArray(answers) ? answers : []);
+  res.json(result);
+});
+
+// Create a new living story — its emotional vector is mapped by the engine,
+// so it immediately joins the resonance space and can be matched to other souls.
+app.post('/api/stories', async (req, res) => {
+  const { title, fullText, author, chapter } = req.body;
+  if (!fullText || !fullText.trim()) {
+    return res.status(400).json({ error: 'fullText is required' });
+  }
+  const analysis = await analyzeEmotion(fullText);
+  const authorName = author || 'Anonymous';
+  const excerpt = fullText.trim().split('\n')[0].slice(0, 280);
+
+  const story = {
+    id: `story-${uuidv4().slice(0, 8)}`,
+    title: title || 'An Untitled Fragment',
+    excerpt,
+    author: authorName,
+    authorInitial: authorName[0].toUpperCase(),
+    mood: analysis.mood,
+    emotionalVector: analysis.emotionalVector,
+    frequency: analysis.frequency,
+    chapter: chapter || 'A New Chapter',
+    createdAt: new Date().toISOString(),
+    echoes: 0,
+    fullText,
+  };
+  stories.push(story);
+  res.status(201).json(story);
+});
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
   console.log(`The Weave server running on port ${PORT}`);
+  console.log(`Emotional Resonance Engine: ${aiEnabled() ? `live (${MODEL})` : 'fallback mode (no ANTHROPIC_API_KEY)'}`);
 });
