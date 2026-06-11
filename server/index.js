@@ -4,7 +4,27 @@ const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
 const { analyzeEmotion, generateGuideQuestion, aiEnabled, MODEL } = require('./resonance');
+
+// ─── Email verification store (in-memory, expires in 10 min) ──────────────────
+const verificationCodes = new Map(); // email -> { code, expiresAt }
+
+function createTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: false,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+}
+
+function generateCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -187,6 +207,66 @@ function cosineSimilarity(vecA, vecB) {
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
+
+// ─── Auth: send verification code ─────────────────────────────────────────────
+app.post('/api/auth/send-code', async (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'Invalid email address.' });
+  }
+
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    // Dev/demo fallback: log code to console, return it in response for testing
+    const code = generateCode();
+    verificationCodes.set(email.toLowerCase(), { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+    console.log(`[DEV] Verification code for ${email}: ${code}`);
+    return res.json({ success: true, dev: true, code }); // expose code only in dev mode
+  }
+
+  const code = generateCode();
+  verificationCodes.set(email.toLowerCase(), { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+
+  try {
+    const transporter = createTransporter();
+    await transporter.sendMail({
+      from: `"The Weave" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: 'Your Weave verification code',
+      html: `
+        <div style="font-family:Georgia,serif;max-width:480px;margin:0 auto;padding:40px 20px;background:#0f0c29;color:#e0d8ff;border-radius:16px;">
+          <h1 style="font-size:22px;letter-spacing:0.2em;text-transform:uppercase;color:#a78bfa;margin-bottom:8px;">The Weave</h1>
+          <p style="color:rgba(255,255,255,0.5);font-size:13px;margin-bottom:32px;">Where stories find their souls</p>
+          <p style="font-size:16px;margin-bottom:24px;">Your verification code is:</p>
+          <div style="font-size:40px;font-weight:700;letter-spacing:0.3em;color:#a78bfa;background:rgba(167,139,250,0.1);padding:20px;border-radius:12px;text-align:center;border:1px solid rgba(167,139,250,0.3);">${code}</div>
+          <p style="margin-top:24px;color:rgba(255,255,255,0.4);font-size:13px;">This code expires in 10 minutes. If you didn't request this, ignore this email.</p>
+        </div>
+      `,
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Email error:', err.message);
+    res.status(500).json({ error: 'Failed to send email. Please check SMTP settings.' });
+  }
+});
+
+// ─── Auth: verify code ─────────────────────────────────────────────────────────
+app.post('/api/auth/verify-code', (req, res) => {
+  const { email, code } = req.body;
+  if (!email || !code) return res.status(400).json({ error: 'Email and code required.' });
+
+  const entry = verificationCodes.get(email.toLowerCase());
+  if (!entry) return res.status(400).json({ error: 'No code found for this email. Please request a new one.' });
+  if (Date.now() > entry.expiresAt) {
+    verificationCodes.delete(email.toLowerCase());
+    return res.status(400).json({ error: 'Code expired. Please request a new one.' });
+  }
+  if (entry.code !== code.trim()) {
+    return res.status(400).json({ error: 'Incorrect code. Please try again.' });
+  }
+
+  verificationCodes.delete(email.toLowerCase());
+  res.json({ success: true });
+});
 
 app.get('/api/stories', (req, res) => {
   const list = stories.map(({ fullText, ...rest }) => rest);

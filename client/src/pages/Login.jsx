@@ -1,31 +1,120 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+
+// ── steps: 'email' → 'code' → done ──────────────────────────────────────────
 
 export default function Login() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState('login');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [step, setStep]       = useState('email');
+  const [name, setName]       = useState('');
+  const [email, setEmail]     = useState('');
+  const [digits, setDigits]   = useState(['', '', '', '', '', '']);
+  const [error, setError]     = useState('');
   const [loading, setLoading] = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
+  const inputRefs = useRef([]);
 
-  const handleSubmit = (e) => {
+  // countdown for resend button
+  useEffect(() => {
+    if (resendTimer <= 0) return;
+    const t = setTimeout(() => setResendTimer(r => r - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendTimer]);
+
+  // ── Step 1: send code ──────────────────────────────────────────────────────
+  const handleSendCode = async (e) => {
     e.preventDefault();
     setError('');
-    if (mode === 'signup' && !name.trim()) { setError('Please enter your name.'); return; }
-    if (!email.includes('@')) { setError('Please enter a valid email.'); return; }
-    if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
-
+    if (!name.trim()) { setError('Please enter your name.'); return; }
+    if (!email.includes('@')) { setError('Please enter a valid email address.'); return; }
     setLoading(true);
-    setTimeout(() => {
-      const user = {
-        name: mode === 'signup' ? name.trim() : email.split('@')[0],
-        email: email.trim().toLowerCase(),
-      };
-      localStorage.setItem('weave_user', JSON.stringify(user));
+    try {
+      const res = await fetch('/api/auth/send-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Failed to send code.'); setLoading(false); return; }
+      // dev mode: auto-fill code
+      if (data.dev && data.code) {
+        setDigits(data.code.split(''));
+      }
+      setStep('code');
+      setResendTimer(60);
+    } catch {
+      setError('Network error. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  // ── Step 2: verify code ────────────────────────────────────────────────────
+  const handleVerify = async (e) => {
+    e?.preventDefault();
+    setError('');
+    const code = digits.join('');
+    if (code.length < 6) { setError('Please enter the full 6-digit code.'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/verify-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Verification failed.'); setLoading(false); return; }
+      localStorage.setItem('weave_user', JSON.stringify({ name: name.trim(), email: email.trim().toLowerCase() }));
       navigate('/');
-    }, 800);
+    } catch {
+      setError('Network error. Please try again.');
+    }
+    setLoading(false);
+  };
+
+  const handleResend = async () => {
+    if (resendTimer > 0) return;
+    setError('');
+    setDigits(['', '', '', '', '', '']);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/send-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (data.dev && data.code) setDigits(data.code.split(''));
+      setResendTimer(60);
+    } catch { setError('Failed to resend.'); }
+    setLoading(false);
+  };
+
+  // ── Digit input handlers ───────────────────────────────────────────────────
+  const handleDigit = (i, val) => {
+    const v = val.replace(/\D/g, '').slice(-1);
+    const next = [...digits];
+    next[i] = v;
+    setDigits(next);
+    if (v && i < 5) inputRefs.current[i + 1]?.focus();
+    if (next.every(d => d !== '')) {
+      // auto-submit when all 6 filled
+      setTimeout(() => handleVerify(), 80);
+    }
+  };
+
+  const handleDigitKey = (i, e) => {
+    if (e.key === 'Backspace' && !digits[i] && i > 0) {
+      inputRefs.current[i - 1]?.focus();
+    }
+  };
+
+  const handleDigitPaste = (e) => {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length === 6) {
+      setDigits(pasted.split(''));
+      inputRefs.current[5]?.focus();
+      setTimeout(() => handleVerify(), 80);
+    }
   };
 
   return (
@@ -38,230 +127,152 @@ export default function Login() {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     }}>
       <style>{`
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(24px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
         .wv-input {
-          width: 100%;
-          padding: 14px 16px;
-          background: rgba(255,255,255,0.08);
-          border: 1.5px solid rgba(255,255,255,0.15);
-          border-radius: 12px;
-          color: #fff;
-          font-size: 15px;
-          outline: none;
-          transition: all 0.2s;
-          box-sizing: border-box;
-          font-family: inherit;
+          width:100%; padding:14px 16px;
+          background:rgba(255,255,255,0.08); border:1.5px solid rgba(255,255,255,0.15);
+          border-radius:12px; color:#fff; font-size:15px; outline:none;
+          transition:all 0.2s; box-sizing:border-box; font-family:inherit;
         }
-        .wv-input::placeholder { color: rgba(255,255,255,0.3); }
-        .wv-input:focus {
-          border-color: #a78bfa;
-          background: rgba(167,139,250,0.1);
-          box-shadow: 0 0 0 4px rgba(167,139,250,0.15);
+        .wv-input::placeholder { color:rgba(255,255,255,0.3); }
+        .wv-input:focus { border-color:#a78bfa; background:rgba(167,139,250,0.1); box-shadow:0 0 0 4px rgba(167,139,250,0.15); }
+        .wv-btn {
+          width:100%; padding:15px; background:linear-gradient(135deg,#7c3aed,#a78bfa);
+          border:none; border-radius:12px; color:#fff; font-size:15px; font-weight:700;
+          cursor:pointer; transition:all 0.25s; font-family:inherit; letter-spacing:0.03em;
+          box-shadow:0 4px 20px rgba(124,58,237,0.45); display:flex; align-items:center; justify-content:center; gap:8px;
         }
-        .wv-btn-primary {
-          width: 100%;
-          padding: 15px;
-          background: linear-gradient(135deg, #7c3aed, #a78bfa);
-          border: none;
-          border-radius: 12px;
-          color: #fff;
-          font-size: 15px;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.25s;
-          font-family: inherit;
-          letter-spacing: 0.03em;
-          box-shadow: 0 4px 20px rgba(124,58,237,0.45);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
+        .wv-btn:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 8px 28px rgba(124,58,237,0.6); }
+        .wv-btn:disabled { opacity:0.55; cursor:not-allowed; transform:none; }
+        .digit-box {
+          width:48px; height:60px; text-align:center; font-size:24px; font-weight:700;
+          background:rgba(255,255,255,0.08); border:2px solid rgba(255,255,255,0.2);
+          border-radius:12px; color:#fff; outline:none; transition:all 0.2s; font-family:inherit;
+          caret-color: #a78bfa;
         }
-        .wv-btn-primary:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 8px 28px rgba(124,58,237,0.6);
-        }
-        .wv-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-        .wv-link {
-          background: none;
-          border: none;
-          color: #a78bfa;
-          cursor: pointer;
-          font-size: 14px;
-          font-family: inherit;
-          padding: 0;
-          text-decoration: underline;
-        }
-        .wv-link:hover { color: #c4b5fd; }
+        .digit-box:focus { border-color:#a78bfa; background:rgba(167,139,250,0.15); box-shadow:0 0 0 4px rgba(167,139,250,0.2); }
+        .digit-box.filled { border-color:#a78bfa88; background:rgba(167,139,250,0.1); }
       `}</style>
 
-      <div style={{
-        width: '100%',
-        maxWidth: '400px',
-        margin: '20px',
-        animation: 'fadeUp 0.6s ease both',
-      }}>
+      <div style={{ width:'100%', maxWidth:'420px', margin:'20px', animation:'fadeUp 0.6s ease both' }}>
+
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: '36px' }}>
+        <div style={{ textAlign:'center', marginBottom:'32px' }}>
           <div style={{
-            width: '56px',
-            height: '56px',
-            borderRadius: '16px',
-            background: 'linear-gradient(135deg, #7c3aed, #a78bfa)',
-            margin: '0 auto 16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '24px',
-            boxShadow: '0 8px 32px rgba(124,58,237,0.5)',
-          }}>
-            🕸
-          </div>
-          <h1 style={{ color: '#fff', fontSize: '26px', fontWeight: '700', margin: '0 0 6px', letterSpacing: '-0.5px' }}>
-            {mode === 'login' ? 'Welcome back' : 'Join The Weave'}
+            width:'56px', height:'56px', borderRadius:'16px',
+            background:'linear-gradient(135deg,#7c3aed,#a78bfa)',
+            margin:'0 auto 14px', display:'flex', alignItems:'center', justifyContent:'center',
+            fontSize:'26px', boxShadow:'0 8px 32px rgba(124,58,237,0.5)',
+          }}>🕸</div>
+          <h1 style={{ color:'#fff', fontSize:'24px', fontWeight:'700', margin:'0 0 6px', letterSpacing:'-0.5px' }}>
+            {step === 'email' ? 'Join The Weave' : 'Check your email'}
           </h1>
-          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: '14px', margin: 0 }}>
-            {mode === 'login' ? 'Sign in to your account' : 'Create your account to begin'}
+          <p style={{ color:'rgba(255,255,255,0.4)', fontSize:'14px', margin:0 }}>
+            {step === 'email'
+              ? 'Enter your details to get started'
+              : `We sent a 6-digit code to ${email}`}
           </p>
         </div>
 
         {/* Card */}
         <div style={{
-          background: 'rgba(255,255,255,0.06)',
-          backdropFilter: 'blur(20px)',
-          borderRadius: '20px',
-          border: '1px solid rgba(255,255,255,0.12)',
-          padding: '32px',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
+          background:'rgba(255,255,255,0.06)', backdropFilter:'blur(20px)',
+          borderRadius:'20px', border:'1px solid rgba(255,255,255,0.12)',
+          padding:'32px', boxShadow:'0 24px 64px rgba(0,0,0,0.4)',
         }}>
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {mode === 'signup' && (
+
+          {/* ── STEP 1: email form ── */}
+          {step === 'email' && (
+            <form onSubmit={handleSendCode} style={{ display:'flex', flexDirection:'column', gap:'16px' }}>
               <div>
-                <label style={{ display: 'block', color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>
-                  Full name
-                </label>
-                <input
-                  className="wv-input"
-                  type="text"
-                  placeholder="Your name"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  autoFocus
-                />
+                <label style={{ display:'block', color:'rgba(255,255,255,0.6)', fontSize:'13px', fontWeight:'500', marginBottom:'8px' }}>Your name</label>
+                <input className="wv-input" type="text" placeholder="e.g. Mara Solenne" value={name} onChange={e => setName(e.target.value)} autoFocus />
               </div>
-            )}
-
-            <div>
-              <label style={{ display: 'block', color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>
-                Email address
-              </label>
-              <input
-                className="wv-input"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                autoFocus={mode === 'login'}
-                autoComplete="email"
-              />
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '500' }}>
-                  Password
-                </label>
-                {mode === 'login' && (
-                  <button type="button" className="wv-link" style={{ fontSize: '12px' }}>
-                    Forgot password?
-                  </button>
-                )}
+              <div>
+                <label style={{ display:'block', color:'rgba(255,255,255,0.6)', fontSize:'13px', fontWeight:'500', marginBottom:'8px' }}>Email address</label>
+                <input className="wv-input" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" />
               </div>
-              <input
-                className="wv-input"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              />
-            </div>
 
-            {error && (
-              <div style={{
-                padding: '12px 14px',
-                background: 'rgba(239,68,68,0.15)',
-                border: '1px solid rgba(239,68,68,0.3)',
-                borderRadius: '10px',
-                color: '#fca5a5',
-                fontSize: '13px',
-              }}>
-                {error}
+              {error && <ErrorBox msg={error} />}
+
+              <button type="submit" className="wv-btn" disabled={loading} style={{ marginTop:'4px' }}>
+                {loading && <Spinner />}
+                {loading ? 'Sending code…' : 'Send verification code →'}
+              </button>
+            </form>
+          )}
+
+          {/* ── STEP 2: 6-digit code ── */}
+          {step === 'code' && (
+            <form onSubmit={handleVerify} style={{ display:'flex', flexDirection:'column', gap:'24px' }}>
+              {/* digit boxes */}
+              <div style={{ display:'flex', gap:'8px', justifyContent:'center', animation: error ? 'shake 0.4s ease' : 'none' }}>
+                {digits.map((d, i) => (
+                  <input
+                    key={i}
+                    ref={el => inputRefs.current[i] = el}
+                    className={`digit-box${d ? ' filled' : ''}`}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={d}
+                    onChange={e => handleDigit(i, e.target.value)}
+                    onKeyDown={e => handleDigitKey(i, e)}
+                    onPaste={handleDigitPaste}
+                    autoFocus={i === 0}
+                  />
+                ))}
               </div>
-            )}
 
-            <button type="submit" className="wv-btn-primary" disabled={loading} style={{ marginTop: '4px' }}>
-              {loading && (
-                <div style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-              )}
-              {loading ? 'Signing in…' : mode === 'login' ? 'Sign in' : 'Create account'}
-            </button>
-          </form>
+              {error && <ErrorBox msg={error} />}
 
-          {/* Divider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '24px 0' }}>
-            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
-            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: '12px' }}>OR</span>
-            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.1)' }} />
-          </div>
+              <button type="submit" className="wv-btn" disabled={loading || digits.join('').length < 6}>
+                {loading && <Spinner />}
+                {loading ? 'Verifying…' : 'Verify & enter the Weave'}
+              </button>
 
-          {/* Google-style social button */}
-          <button
-            type="button"
-            onClick={() => { setError('Social login coming soon.'); }}
-            style={{
-              width: '100%',
-              padding: '13px',
-              background: 'rgba(255,255,255,0.08)',
-              border: '1.5px solid rgba(255,255,255,0.15)',
-              borderRadius: '12px',
-              color: '#fff',
-              fontSize: '14px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              fontFamily: 'inherit',
-              transition: 'background 0.2s',
-              boxSizing: 'border-box',
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.13)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18">
-              <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
-              <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
-              <path fill="#FBBC05" d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z"/>
-              <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z"/>
-            </svg>
-            Continue with Google
-          </button>
+              {/* resend */}
+              <p style={{ textAlign:'center', color:'rgba(255,255,255,0.4)', fontSize:'13px', margin:0 }}>
+                Didn't receive it?{' '}
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resendTimer > 0}
+                  style={{ background:'none', border:'none', color: resendTimer > 0 ? 'rgba(255,255,255,0.25)' : '#a78bfa', cursor: resendTimer > 0 ? 'default' : 'pointer', fontSize:'13px', fontFamily:'inherit', padding:0 }}
+                >
+                  {resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend code'}
+                </button>
+              </p>
+
+              <button
+                type="button"
+                onClick={() => { setStep('email'); setError(''); setDigits(['','','','','','']); }}
+                style={{ background:'none', border:'none', color:'rgba(255,255,255,0.35)', cursor:'pointer', fontSize:'13px', fontFamily:'inherit', textAlign:'center' }}
+              >
+                ← Change email
+              </button>
+            </form>
+          )}
         </div>
 
-        {/* Switch mode */}
-        <p style={{ textAlign: 'center', marginTop: '24px', color: 'rgba(255,255,255,0.4)', fontSize: '14px' }}>
-          {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
-          <button className="wv-link" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }}>
-            {mode === 'login' ? 'Sign up' : 'Sign in'}
-          </button>
+        <p style={{ textAlign:'center', marginTop:'20px', color:'rgba(255,255,255,0.3)', fontSize:'12px' }}>
+          By continuing you agree to our terms of service
         </p>
       </div>
     </div>
   );
+}
+
+function ErrorBox({ msg }) {
+  return (
+    <div style={{ padding:'12px 14px', background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:'10px', color:'#fca5a5', fontSize:'13px' }}>
+      {msg}
+    </div>
+  );
+}
+
+function Spinner() {
+  return <div style={{ width:'16px', height:'16px', border:'2px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />;
 }
